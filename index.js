@@ -22,10 +22,10 @@ exports.handler = async (event) => {
   const writeStream = fs.createWriteStream(tempFilePath);
   const s3Stream = s3.getObject({ Bucket, Key }).createReadStream();
 
+  let tree = {};
+
   // Use Promise to make sure the unzip process is done before ending the lambda function
   await new Promise((resolve, reject) => {
-    // Initialize the tree structure
-    let tree = {};
     s3Stream
       .on("error", (error) => reject(`Error with s3Stream: ${error}`))
       .pipe(writeStream)
@@ -54,7 +54,12 @@ exports.handler = async (event) => {
             } else if (type === "File") {
               console.log(`Uploading file: ${fileName} to bucket: ${Bucket}`);
 
-              // Upload file to S3
+              // Create product and sku object
+              const fileParts = path.dirname(fileName).split("/");
+              const collectionName = fileParts[0]; // Change here
+              const productName = fileParts[1]; // And here
+              const skuName = path.basename(fileName, path.extname(fileName));
+
               const uploadResult = await s3
                 .upload({
                   Bucket,
@@ -63,23 +68,20 @@ exports.handler = async (event) => {
                 })
                 .promise();
 
-              // Create product and sku object
-              const fileParts = path.dirname(fileName).split("/");
-              const collectionName = fileParts[1];
-              const productName = fileParts[2];
-              const skuName = path.basename(fileName, path.extname(fileName));
-
               const sku = {
                 skuTitle: skuName,
                 imageUrl: uploadResult.Location,
               };
-
+              console.log(`Created SKU: ${JSON.stringify(sku)}`);
               // Initialize the collection if it doesn't exist
               if (!tree[collectionName]) {
                 tree[collectionName] = {
                   collection: collectionName,
                   products: [],
                 };
+                console.log(
+                  `Created Collection: ${JSON.stringify(tree[collectionName])}`
+                );
               }
 
               // Find the product this sku belongs to
@@ -91,6 +93,7 @@ exports.handler = async (event) => {
               if (!productNode) {
                 productNode = { title: productName, sku: [] };
                 tree[collectionName].products.push(productNode);
+                console.log(`Created Product: ${JSON.stringify(productNode)}`);
               }
 
               // Add the sku to the product
@@ -116,6 +119,7 @@ exports.handler = async (event) => {
               .promise();
 
             console.log(`Uploaded A.OK to bucket: ${Bucket}`);
+            console.log(`Final tree structure: ${JSON.stringify(tree)}`);
             resolve(); // Resolve the promise when unzip process is finished and A.OK is uploaded
           });
       });
