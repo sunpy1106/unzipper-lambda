@@ -3,6 +3,7 @@ const s3 = new AWS.S3();
 const unzipper = require("unzipper");
 const fs = require("fs");
 const path = require("path");
+const mime = require("mime-types");
 
 exports.handler = async (event) => {
   console.log("Received event:", JSON.stringify(event));
@@ -59,17 +60,19 @@ exports.handler = async (event) => {
                 const productName = fileParts[1];
                 const skuName = path.basename(fileName, path.extname(fileName));
                 console.log(`Uploading file: ${fileName} to bucket: ${Bucket}`);
+                const contentType = mime.contentType(path.extname(fileName));
                 const uploadResult = await s3
                   .upload({
                     Bucket,
                     Key: `${newKey}/${fileName}`,
                     Body: entry,
+                    ContentType: contentType,
                   })
                   .promise();
 
-                const sku = {
-                  skuTitle: skuName,
-                  imageUrl: uploadResult.Location,
+                const image = {
+                  altText: skuName,
+                  src: uploadResult.Location,
                 };
                 // Initialize the collection if it doesn't exist
                 if (!tree[collectionName]) {
@@ -91,7 +94,11 @@ exports.handler = async (event) => {
 
                 // If product doesn't exist, create a new one
                 if (!productNode) {
-                  productNode = { title: productName, sku: [] };
+                  productNode = {
+                    collection: collectionName,
+                    title: productName,
+                    images: [],
+                  };
                   tree[collectionName].products.push(productNode);
                   console.log(
                     `Created Product: ${JSON.stringify(productNode)}`
@@ -99,7 +106,7 @@ exports.handler = async (event) => {
                 }
 
                 // Add the sku to the product
-                productNode.sku.push(sku);
+                productNode.images.push(image);
                 console.log(`Created SKU: ${JSON.stringify(productNode)}`);
                 console.log(`Uploaded file: ${fileName} to bucket: ${Bucket}`);
 
@@ -129,20 +136,6 @@ exports.handler = async (event) => {
           .on("finish", async () => {
             // Convert the tree to an array of collections and write it into A.OK and upload it to S3
             await Promise.all(uploadPromises); // 等待所有的上传操作完成
-            const collections = Object.values(tree);
-            const treeKey = `${newKey}/${newKey}.OK`;
-            const treeBody = JSON.stringify(collections);
-            console.log("the content of .OK file :", treeBody);
-            await s3
-              .upload({
-                Bucket,
-                Key: treeKey,
-                Body: treeBody,
-              })
-              .promise();
-
-            console.log(`Uploaded .OK file to bucket: ${Bucket}`);
-            console.log(`Final tree structure: ${JSON.stringify(tree)}`);
 
             // Create a .OK.completed file to indicate all products have been processed
             const completedOkKey = `${newKey}/OK.completed`;
